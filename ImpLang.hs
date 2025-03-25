@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use $>" #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Beyond_Effects.ImpLang where
 import Beyond_Effects.Effects
@@ -122,9 +123,6 @@ tokenizer = fmap reverse (chain1 (fmap (:[]) token) token (fmap (const (flip (:)
 runParse :: Parser a b -> [a] -> Either (Err, [a]) (b, [a])
 runParse (Parser p) inp = p (0, inp) (\x stateAfter -> Right (x, dump stateAfter)) (Right . (, inp)) (\err state -> Left (err, dump state)) (\err -> Left (err, inp))
 
--- class Freeable a b where
---     toFree :: (Functor f, ExpSe c < f) => b -> Free f a
-
 
 data AExpS where
     NumS :: Int -> AExpS
@@ -134,9 +132,6 @@ data AExpS where
     TimesS :: AExpS -> AExpS -> AExpS
     deriving Show
 
--- instance Freeable Int AExpS where
---     toFree (NumS i) = num i
-
 
 data BExpS where
     TrueS :: BExpS
@@ -145,7 +140,7 @@ data BExpS where
     LeS :: AExpS -> AExpS -> BExpS
     AndS :: BExpS -> BExpS -> BExpS
     OrS :: BExpS -> BExpS -> BExpS
-    Not :: BExpS -> BExpS
+    NotS :: BExpS -> BExpS
     deriving Show
 
 data CommS where
@@ -181,9 +176,6 @@ aExp = plusTerms
 
         timesTerms :: Parser ITok AExpS
         timesTerms = chain1 elements elements (fmap (const TimesS) (is TimesT))
-
-        elements = choice [num, varS]
-
         -- plusOrSubOrTimes = do 
         --     a1 <- aExp
         --     op <- oneOf [PlusT, SubT, TimesT]
@@ -205,12 +197,21 @@ aExp = plusTerms
         --     is TimesT
         --     TimesS a1 <$> aExp
 
+        elements = choice [num, varS]
+
+
 bExp :: Parser ITok BExpS
 bExp =  chain1 elements elements (fmap (\case
                 AndT -> AndS
                 OrT -> OrS) (oneOf [AndT, OrT]))
+    -- andOrOr = do 
+    --     b1 <- bExp
+    --     op <- oneOf [AndT, OrT]
+    --     (case op of
+    --         AndT -> AndS
+    --         OrT -> OrS) b1 <$> bExp
     where
-        not' = is NotT >> bExp
+        not' = is NotT >> fmap (NotS) (bExp)
         eqOrLeq = do
             a1 <- aExp
             op <- oneOf [EqT, LET]
@@ -219,12 +220,6 @@ bExp =  chain1 elements elements (fmap (\case
                 LET -> LeS) a1 <$> aExp
         elements = choice [fmap (const TrueS) (is TrueT), fmap (const FalseS) (is FalseT),not', eqOrLeq]
 
-        -- andOrOr = do 
-        --     b1 <- bExp
-        --     op <- oneOf [AndT, OrT]
-        --     (case op of
-        --         AndT -> AndS
-        --         OrT -> OrS) b1 <$> bExp
 
 comm :: Parser ITok CommS
 comm = chain1 elements elements (fmap (const ConS) (is SemiColT))
@@ -245,28 +240,89 @@ comm = chain1 elements elements (fmap (const ConS) (is SemiColT))
 
         skip = is SkipT *> pure SkipS
 
+
+freeAExp :: (Functor f, ExpSe a < f) => AExpS -> Free f a
+freeAExp (VarS s) = var s
+freeAExp (NumS i) = num i
+freeAExp (PlusS a b) = do
+    a <- freeAExp a
+    b <- freeAExp b
+    add a b
+freeAExp (SubS a b) = do
+    a <- freeAExp a
+    b <- freeAExp b
+    sub a b
+freeAExp (TimesS a b) = do
+    a <- freeAExp a
+    b <- freeAExp b
+    mul a b
+
+-- freeBExp :: forall c f.(Functor f, ExpSe c < f) => BExpS -> Free f Bool
+freeBExp TrueS = true
+freeBExp FalseS = false
+freeBExp (EqS a b) = do
+    a <- freeAExp a
+    b <- freeAExp b
+    equals a b
+freeBExp (LeS a b) = do
+    a <- freeAExp a
+    b <- freeAExp b
+    lessThanEquals a b
+freeBExp (NotS b) = do 
+    b <- freeBExp b
+    not'' b
+
+
+
 data ExpSe c k where
     Var :: String -> (c -> k) -> ExpSe c k
     Num :: Int -> (c -> k) -> ExpSe c k
     Add :: c -> c -> (c -> k) -> ExpSe c k
+    Sub :: c -> c -> (c -> k) -> ExpSe c k
+    Mul :: c -> c -> (c -> k) -> ExpSe c k
+    TT :: (Bool -> k) -> ExpSe c k
+    FF :: (Bool -> k) -> ExpSe c k
+    Equals :: c -> c -> (Bool -> k) -> ExpSe c k
+    LessThanEquals :: c -> c -> (Bool -> k) -> ExpSe c k
+    Not :: Bool -> (Bool -> k) -> ExpSe c k
+    deriving Functor
 
 instance Show (ExpSe c k) where
     show (Var s k) = "Var " ++ s
     show (Num i k) = "Num " ++ show i
 
-instance Functor (ExpSe c) where
-    fmap :: (a -> b) -> ExpSe c a -> ExpSe c b
-    fmap f (Var s k) = Var s (f . k)
-    fmap f (Num i k) = Num i (f . k)
-    fmap f (Add a b k) = Add a b (f . k)
+-- instance Functor (ExpSe c) where
+--     fmap :: (a -> b) -> ExpSe c a -> ExpSe c b
+--     fmap f (Var s k) = Var s (f . k)
+--     fmap f (Num i k) = Num i (f . k)
+--     fmap f (Add a b k) = Add a b (f . k)
 
 
 var s = Op (inj (Var s pure))
 
 num i = Op (inj (Num i pure))
 
-add :: (Functor f, ExpSe a < f, Num a) => a -> a -> Free f a
+-- add :: (Functor f, ExpSe a < f) => a -> a -> Free f a
 add a b = Op (inj (Add a b pure))
+
+sub a b = Op (inj (Sub a b pure))
+
+mul a b = Op (inj (Mul a b pure))
+
+true :: forall c f. (Functor f, ExpSe c < f) => Free f Bool
+true = Op ((inj :: forall {k} . (Functor f, ExpSe c < (ExpSe c + f)) => ExpSe c k -> f k) (TT pure))
+
+false :: forall c f. (Functor f, ExpSe c < f) => Free f Bool
+false = Op ((inj:: forall {k} . (Functor f, ExpSe c < (ExpSe c + f)) => ExpSe c k -> f k) (FF pure))
+
+equals :: (Functor f, ExpSe c < f) => c -> c -> Free f Bool
+equals a b = Op (inj (Equals a b pure))
+
+lessThanEquals :: (Functor f, ExpSe c < f) => c -> c -> Free f Bool
+lessThanEquals a b = Op (inj (Equals a b pure))
+
+not'' :: forall c f. (Functor f, ExpSe c < f) => Bool -> Free f Bool
+not'' b = Op ((inj:: forall {k} . (Functor f, ExpSe c < (ExpSe c + f))=> ExpSe c k -> f k) (Not b pure))
 ---
 
 {-
@@ -311,22 +367,61 @@ ifs = runParse comm (fst . fromRight ([], "") $ runParse tokenizer "if tt then s
 
 plus = fst . fromRight (NumS 0, []) $ runParse aExp (fst . fromRight ([], "") $ runParse tokenizer "v + 3")
 
--- emulatedPlus :: (Functor f, ExpSe c < f, ExpSe (Free f c) < f) => Free f c
-emulatedPlus :: (Functor f, ExpSe a < f, Num a) => Free f a
+intoAST targ def inp = fst . fromRight (def, []) $ runParse targ (fst . fromRight ([], "") $ runParse tokenizer inp)
+
+--- Free Monad
+
+emulatedPlus :: (Functor f, ExpSe a < f) => Free f a
 emulatedPlus = do
     a <- var "v"
     b <- num 3
     add a b
 
-expSeHandler :: Num a => Handler_ (ExpSe a) a (Map (Either String Int) a) f' a
+expSeHandler :: (Ord a, Num a) => Handler_ (ExpSe a) b (Map (Either String Int) a) f' b
 expSeHandler = Handler_{
     ret_ = \a s -> Pure a,
     hdlr_ = \fs s -> case fs of
         (Var v k) -> k (s!(Left v)) s
         (Num i k) -> k (s!(Right i)) s
         (Add a b k) -> k (a + b) s
+        (Mul a b k) -> k (a * b) s
+        (Sub a b k) -> k (a - b) s
+        (TT k) -> k True s
+        (FF k) -> k False s
+        (Equals a b k) -> k (a == b) s
+        (LessThanEquals a b k) -> k (a <= b) s
+        (Not b k) -> k (not b) s
 }
 
-instance Num String where
-    (+) = (++)
-temp = un $ handle_ expSeHandler emulatedPlus (fromList [(Left "v", "Hello "), (Right 3, "world")])
+visualHandler :: Handler (ExpSe String) a f' a
+visualHandler = Handler{
+    ret = Pure,
+    hdlr = \case
+        (Var v k) -> k v
+        (Num i k) -> k (show i)
+        (Add a b k) -> k (a ++ " + " ++ b)
+}
+
+-- instance Num String where
+--     (+) = (++)
+-- "Hello world" == un $ handle_ expSeHandler emulatedPlus 
+--     (fromList [(Left "v", "Hello "), (Right 3, "world")])
+
+comp :: Int
+comp = un $ handle_ (expSeHandler :: Handler_ (ExpSe Int) Int (Map (Either String Int) Int) f' Int) emulatedPlus 
+    (fromList [(Left "v", 3), (Right 3, 3)])
+
+visual :: String
+visual = un $ handle visualHandler emulatedPlus
+
+-- emulatedEq :: (Functor f, ExpSe a < f, Ord a) => Free f a
+emulatedEq = do
+    a <- num 0
+    b <- num 0
+    equals a b
+    -- return a
+
+boolean :: Bool
+boolean = un $ handle_ (expSeHandler :: Handler_ (ExpSe Int) Bool (Map (Either String Int) Int) f' Bool) ((freeBExp :: BExpS -> Free (ExpSe Int + End) Bool) $ intoAST bExp TrueS "0=0") (fromList [(Right 0, 0)])
+
+comp' = un $ handle_ (expSeHandler  :: Handler_ (ExpSe Int) Bool (Map (Either String Int) Bool) f' Int) emulatedEq (fromList [(Right 0, 0)])
