@@ -241,7 +241,7 @@ comm = chain1 elements elements (fmap (const ConS) (is SemiColT))
         skip = is SkipT *> pure SkipS
 
 
-freeAExp :: (Functor f, ExpSe a < f) => AExpS -> Free f a
+freeAExp :: (Functor f, ExpSe < f) => AExpS -> Free f Value
 freeAExp (VarS s) = var s
 freeAExp (NumS i) = num i
 freeAExp (PlusS a b) = do
@@ -258,6 +258,8 @@ freeAExp (TimesS a b) = do
     mul a b
 
 -- freeBExp :: forall c f.(Functor f, ExpSe c < f) => BExpS -> Free f Bool
+-- freeBExp :: (Functor f, ExpSe c < f) => BExpS -> Free f Bool
+freeBExp :: (Functor f, ExpSe < f) => BExpS -> Free f Bool
 freeBExp TrueS = true
 freeBExp FalseS = false
 freeBExp (EqS a b) = do
@@ -271,23 +273,23 @@ freeBExp (LeS a b) = do
 freeBExp (NotS b) = do 
     b <- freeBExp b
     not'' b
+-- auto generated free structures do not know what the expression/effects will emmit
 
 
-
-data ExpSe c k where
-    Var :: String -> (c -> k) -> ExpSe c k
-    Num :: Int -> (c -> k) -> ExpSe c k
-    Add :: c -> c -> (c -> k) -> ExpSe c k
-    Sub :: c -> c -> (c -> k) -> ExpSe c k
-    Mul :: c -> c -> (c -> k) -> ExpSe c k
-    TT :: (Bool -> k) -> ExpSe c k
-    FF :: (Bool -> k) -> ExpSe c k
-    Equals :: c -> c -> (Bool -> k) -> ExpSe c k
-    LessThanEquals :: c -> c -> (Bool -> k) -> ExpSe c k
-    Not :: Bool -> (Bool -> k) -> ExpSe c k
+data ExpSe k where
+    Var :: String -> (Value -> k) -> ExpSe k
+    Num :: Int -> (Value -> k) -> ExpSe k
+    Add :: Value -> Value -> (Value -> k) -> ExpSe k
+    Sub :: Value -> Value -> (Value -> k) -> ExpSe k
+    Mul :: Value -> Value -> (Value -> k) -> ExpSe k
+    TT :: (Bool -> k) -> ExpSe k
+    FF :: (Bool -> k) -> ExpSe k
+    Equals :: Value -> Value -> (Bool -> k) -> ExpSe k
+    LessThanEquals :: Value -> Value -> (Bool -> k) -> ExpSe k
+    Not :: Bool -> (Bool -> k) -> ExpSe k
     deriving Functor
 
-instance Show (ExpSe c k) where
+instance Show (ExpSe k) where
     show (Var s k) = "Var " ++ s
     show (Num i k) = "Num " ++ show i
 
@@ -297,60 +299,55 @@ instance Show (ExpSe c k) where
 --     fmap f (Num i k) = Num i (f . k)
 --     fmap f (Add a b k) = Add a b (f . k)
 
+data Value
+    = Number Int
+    | Str String
+    | Chr Char
+    deriving (Show, Eq)
 
+instance Ord Value where
+    (Number a) <= (Number b) = a <= b
+    (Str a) <= (Str b) = length a <= length b
+
+
+var :: (Functor f, ExpSe < f) => String -> Free f Value
 var s = Op (inj (Var s pure))
 
+num :: (Functor f, ExpSe < f) => Int -> Free f Value
 num i = Op (inj (Num i pure))
 
--- add :: (Functor f, ExpSe a < f) => a -> a -> Free f a
+add :: (Functor f, ExpSe < f) => Value -> Value -> Free f Value
 add a b = Op (inj (Add a b pure))
 
+sub :: (Functor f, ExpSe < f) => Value -> Value -> Free f Value
 sub a b = Op (inj (Sub a b pure))
 
+mul :: (Functor f, ExpSe < f) => Value -> Value -> Free f Value
 mul a b = Op (inj (Mul a b pure))
 
-true :: forall c f. (Functor f, ExpSe c < f) => Free f Bool
-true = Op ((inj :: forall {k} . (Functor f, ExpSe c < (ExpSe c + f)) => ExpSe c k -> f k) (TT pure))
+true :: (Functor f, ExpSe < f) => Free f Bool
+true = Op (inj (TT pure))
 
-false :: forall c f. (Functor f, ExpSe c < f) => Free f Bool
-false = Op ((inj:: forall {k} . (Functor f, ExpSe c < (ExpSe c + f)) => ExpSe c k -> f k) (FF pure))
+false :: (Functor f, ExpSe < f) => Free f Bool
+false = Op (inj (FF pure))
 
-equals :: (Functor f, ExpSe c < f) => c -> c -> Free f Bool
+equals :: (Functor f, ExpSe < f) => Value -> Value -> Free f Bool
 equals a b = Op (inj (Equals a b pure))
 
-lessThanEquals :: (Functor f, ExpSe c < f) => c -> c -> Free f Bool
+lessThanEquals :: (Functor f, ExpSe < f) => Value -> Value -> Free f Bool
 lessThanEquals a b = Op (inj (Equals a b pure))
 
-not'' :: forall c f. (Functor f, ExpSe c < f) => Bool -> Free f Bool
-not'' b = Op ((inj:: forall {k} . (Functor f, ExpSe c < (ExpSe c + f))=> ExpSe c k -> f k) (Not b pure))
+not'' :: (Functor f, ExpSe < f) => Bool -> Free f Bool
+not'' b = Op (inj (Not b pure))
 ---
 
 {-
 Three problems
 
 if then else
+    continuations
 
-expressions
-    flatten like ssa
-
-    v+3
-    |
-    v
-    Add (VarS "v") (NumS 3)
-    |
-    v
-    a <- var "v"
-    b <- num 3
-    Add a b
-    |
-    v
-    (add <$> var "v") <$> num 3
-    |
-    v
-    Var "v" (Op (\a -> Num 3 (Op (\b -> Add a b))))
-
-
-
+types
 
 -}
 
@@ -371,57 +368,95 @@ intoAST targ def inp = fst . fromRight (def, []) $ runParse targ (fst . fromRigh
 
 --- Free Monad
 
-emulatedPlus :: (Functor f, ExpSe a < f) => Free f a
+emulatedPlus :: (Functor f, ExpSe < f) => Free f Value
 emulatedPlus = do
     a <- var "v"
     b <- num 3
     add a b
 
-expSeHandler :: (Ord a, Num a) => Handler_ (ExpSe a) b (Map (Either String Int) a) f' b
-expSeHandler = Handler_{
-    ret_ = \a s -> Pure a,
-    hdlr_ = \fs s -> case fs of
-        (Var v k) -> k (s!(Left v)) s
-        (Num i k) -> k (s!(Right i)) s
-        (Add a b k) -> k (a + b) s
-        (Mul a b k) -> k (a * b) s
-        (Sub a b k) -> k (a - b) s
-        (TT k) -> k True s
-        (FF k) -> k False s
-        (Equals a b k) -> k (a == b) s
-        (LessThanEquals a b k) -> k (a <= b) s
-        (Not b k) -> k (not b) s
-}
+-- expSeHandler :: (Ord a, Num a) => Handler_ (ExpSe a) b (Map (Either String Int) a) f' b
+-- expSeHandler = Handler_{
+--     ret_ = \a s -> Pure a,
+--     hdlr_ = \fs s -> case fs of
+--         (Var v k) -> k (s!(Left v)) s
+--         (Num i k) -> k (s!(Right i)) s
+--         (Add a b k) -> k (a + b) s
+--         (Mul a b k) -> k (a * b) s
+--         (Sub a b k) -> k (a - b) s
+--         (TT k) -> k True s
+--         (FF k) -> k False s
+--         (Equals a b k) -> k (a == b) s
+--         (LessThanEquals a b k) -> k (a <= b) s
+--         (Not b k) -> k (not b) s
+-- }
 
-visualHandler :: Handler (ExpSe String) a f' a
-visualHandler = Handler{
-    ret = Pure,
-    hdlr = \case
-        (Var v k) -> k v
-        (Num i k) -> k (show i)
-        (Add a b k) -> k (a ++ " + " ++ b)
-}
+-- visualHandler :: Handler (ExpSe String) a f' a
+-- visualHandler = Handler{
+--     ret = Pure,
+--     hdlr = \case
+--         (Var v k) -> k v
+--         (Num i k) -> k (show i)
+--         (Add a b k) -> k (a ++ " + " ++ b)
+-- }
 
 -- instance Num String where
 --     (+) = (++)
 -- "Hello world" == un $ handle_ expSeHandler emulatedPlus 
 --     (fromList [(Left "v", "Hello "), (Right 3, "world")])
 
-comp :: Int
-comp = un $ handle_ (expSeHandler :: Handler_ (ExpSe Int) Int (Map (Either String Int) Int) f' Int) emulatedPlus 
-    (fromList [(Left "v", 3), (Right 3, 3)])
+-- comp :: Value
+-- comp = un $ handle_ (expSeHandler :: Handler_ (ExpSe) Value (Map (Either String Int) Value) f' Value) emulatedPlus 
+--     (fromList [(Left "v", Number 3), (Right 3, Number 3)])
 
-visual :: String
-visual = un $ handle visualHandler emulatedPlus
+-- visual :: Value
+-- visual = un $ handle visualHandler emulatedPlus
 
 -- emulatedEq :: (Functor f, ExpSe a < f, Ord a) => Free f a
+-- emulatedEq :: Free (ExpSe Int + End) Bool
 emulatedEq = do
     a <- num 0
     b <- num 0
     equals a b
     -- return a
 
-boolean :: Bool
-boolean = un $ handle_ (expSeHandler :: Handler_ (ExpSe Int) Bool (Map (Either String Int) Int) f' Bool) ((freeBExp :: BExpS -> Free (ExpSe Int + End) Bool) $ intoAST bExp TrueS "0=0") (fromList [(Right 0, 0)])
+simpleHdlr = Handler{
+    ret = Pure,
+    hdlr = \case
+        (Num i k) -> k (Number i)
+        (Equals a b k) -> k (a == b)
+        (Add (Number a) (Number b) k) -> k (Number (a + b))
+}
 
-comp' = un $ handle_ (expSeHandler  :: Handler_ (ExpSe Int) Bool (Map (Either String Int) Bool) f' Int) emulatedEq (fromList [(Right 0, 0)])
+w = un $ handle simpleHdlr emulatedEq
+
+-- boolean :: Bool
+-- boolean = un $ handle_ (expSeHandler :: Handler_ (ExpSe Int) Bool (Map (Either String Int) Int) f' Bool) (((freeBExp) $ intoAST bExp TrueS "0=0") :: Free (ExpSe Int + End) Bool) (fromList [(Right 0, 0)])
+
+-- comp' = un $ handle_ (expSeHandler  :: Handler_ (ExpSe) Bool (Map (Either String Int) Int) f' Bool) emulatedEq (fromList [(Right 0, 0)])
+
+confusedOperation :: Free (ExpSe + End) (Value, Value, Value)
+confusedOperation = do
+    (a) <- var "e"
+    (b) <- var "r"
+    (c) <- var "c"
+    return (a, b, c)
+
+conCharHdlr = Handler{
+    ret = Pure,
+    hdlr = \case
+        (Var v k) -> k (Chr 'a')
+}
+
+conStrHdlr = Handler{
+    ret = Pure,
+    hdlr = \(Var _ k) -> k (Str "Hello")
+}
+
+conIntHdlr = Handler{
+    ret = Pure,
+    hdlr = \(Var _ k) -> k (Number 7)
+}
+
+v = un $ handle conIntHdlr confusedOperation
+
+simpleEval inp = un $ handle simpleHdlr (freeAExp $ intoAST aExp (NumS 0) inp)
