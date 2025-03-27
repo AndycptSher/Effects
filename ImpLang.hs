@@ -107,7 +107,7 @@ runParse (Parser p) inp = p (0, inp) (\x stateAfter -> Right (x, dump stateAfter
 
 
 
---- Parser
+--- Parser(AST)
 
 data AExpS where
     NumS :: Int -> AExpS
@@ -143,17 +143,17 @@ data CommS where
 
 varS :: Parser ITok AExpS
 -- varS = fmap (\(VarT x) -> VarS x) (satisfy (\case VarT x -> True;_ -> False))
-varS = do
+varS = (do
     VarT x <- satisfy (const True)
-    return (VarS x)
+    return (VarS x)) `intend` "for Variable"
 
 aExp :: Parser ITok AExpS
-aExp = plusTerms
+aExp = plusTerms `intend` "Arithmetic Expression"
     where
         -- num = fmap (\(NumT x) -> NumS x) (satisfy (\case NumT x -> True;_ -> False))
-        num = do
+        num = (do
             NumT x <- satisfy (const True)
-            return (NumS x)
+            return (NumS x)) `intend` "for Number"
 
         -- TODO: look up bridge?
         plusTerms :: Parser ITok AExpS
@@ -168,7 +168,7 @@ aExp = plusTerms
 bExp :: Parser ITok BExpS
 bExp =  chain1 elements elements (fmap (\case
                 AndT -> AndS
-                OrT -> OrS) (oneOf [AndT, OrT]))
+                OrT -> OrS) (oneOf [AndT, OrT])) `intend` "Boolean Expression"
     where
         not' = is NotT >> fmap (NotS) (bExp)
         eqOrLeq = do
@@ -181,7 +181,7 @@ bExp =  chain1 elements elements (fmap (\case
 
 
 comm :: Parser ITok CommS
-comm = chain1 elements elements (fmap (const ConS) (is SemiColT))
+comm = chain1 elements elements (fmap (const ConS) (is SemiColT)) `intend` "Commands"
     where
         elements = choice [ite, whileDo, def, skip]
         ite = do
