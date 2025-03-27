@@ -7,6 +7,7 @@ Andrej Bauer: WHat is Algebric about algebric effects abd handlers?
 Maciej Pirog: Effect handler: a new approach to computational effects
 
 basic type theory: type assignments and type inference
+    (for type system design)
 
 WASM FX
 
@@ -41,4 +42,5 @@ less papers
 
 ---
 
-[delimited continuations?](https://blog.poisson.chat/posts/2023-01-02-del-cont-examples.html)
+- [ ] ~~[delimited continuations?](https://blog.poisson.chat/posts/2023-01-02-del-cont-examples.html)~~
+- [ ] [Effects and Higher order effects](https://casperbp.net/blog/)
