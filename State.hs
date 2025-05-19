@@ -2,7 +2,7 @@
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Beyond_Effects.State where
+module Effects.State where
 import Data.Maybe (fromJust)
 -- import Control.Monad.State
 --     ( MonadState(put, get), runState, State)

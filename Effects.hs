@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 
-module Beyond_Effects.Effects(
+module Effects.Effects(
     Free(Pure, Op),
     flatten,
     type (+),

@@ -4,9 +4,9 @@
 {-# HLINT ignore "Use $>" #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
-module Beyond_Effects.ImpLang where
-import Beyond_Effects.Effects
-import Linear_Algebra.MiniParsec
+module Effects.ImpLang where
+import Effects.Effects
+import Effects.MiniParsec
 import Control.Applicative
 import Data.Either
 import Data.Map

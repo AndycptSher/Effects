@@ -2,7 +2,8 @@
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 
-import Beyond_Effects.Effects
+module Effects.SimpleAssignExamples where
+import Effects.Effects
 import Prelude hiding (log)
 import Data.Map (Map, (!), empty)
 import Data.Map.Lazy (insert)
